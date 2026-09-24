@@ -74,6 +74,14 @@ except FileNotFoundError:
 # falhou/reiniciou"*, é normal. Siga para o **Passo 2** (não rode o Passo 1 de
 # novo).
 #
+# ⚠️ **Por que instalamos `torchaudio<2.7` junto?** O TRIBE v2 rebaixa o `torch`
+# para 2.6, mas não declara o `torchaudio`. Sem fixá-lo, fica o `torchaudio` que
+# veio no Colab, compilado para um `torch` mais novo. Aí o carregamento do LLaMA
+# (via `transformers`) falha com
+# `undefined symbol: aoti_torch_abi_version` / `Model loading went wrong`.
+# Instalando `torchaudio<2.7` na mesma resolução, o `uv` escolhe o par compatível
+# (`torch==2.6.0` + `torchaudio==2.6.0`).
+#
 # ⏱️ Leva de 3 a 6 minutos.
 
 # %%
@@ -82,7 +90,9 @@ import os
 !apt-get -qq update > /dev/null
 !apt-get -qq install -y xvfb libgl1 > /dev/null
 !pip install -q uv
-!uv pip install --system -q "tribev2[plotting] @ git+https://github.com/facebookresearch/tribev2.git"
+!uv pip install --system -q "tribev2[plotting] @ git+https://github.com/facebookresearch/tribev2.git" "torchaudio<2.7"
+# Confere se torch / torchvision / torchaudio ficaram na mesma "família" de versão
+!python -c "import torch, torchvision, torchaudio; print('torch', torch.__version__, '| torchvision', torchvision.__version__, '| torchaudio', torchaudio.__version__)"
 # O WhisperX roda como ferramenta isolada via `uvx`. Pré-baixamos aqui para que a
 # primeira transcrição não pareça "travada".
 !uvx whisperx --help > /dev/null 2>&1 && echo "✅ WhisperX pronto"
@@ -153,6 +163,21 @@ OUTPUT_FOLDER.mkdir(parents=True, exist_ok=True)
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"torch {torch.__version__} | numpy {np.__version__} | device = {DEVICE}")
+
+# torchaudio precisa ser da mesma versão do torch (ex.: 2.6.x com 2.6.x),
+# senão o carregamento do LLaMA falha com "undefined symbol: aoti_torch_abi_version"
+try:
+    import torchaudio
+
+    if torchaudio.__version__.split(".")[:2] != torch.__version__.split(".")[:2]:
+        raise ImportError(f"torchaudio {torchaudio.__version__} ≠ torch {torch.__version__}")
+    print(f"✅ torchaudio {torchaudio.__version__} compatível")
+except (ImportError, OSError) as e:
+    print(
+        f"❌ torchaudio incompatível: {e}\n"
+        "   Rode numa célula:  !uv pip install --system \"torchaudio<2.7\" \"torch<2.7\"\n"
+        "   Depois: 'Ambiente de execução' > 'Reiniciar sessão' e rode o Passo 2 de novo."
+    )
 if DEVICE == "cpu":
     print("⚠️ Rodando sem GPU: vai ser MUITO lento e a transcrição pode falhar.")
 
@@ -552,6 +577,7 @@ if MAKE_MP4 and plotter is not None:
 #
 # | Problema | Solução |
 # |---|---|
+# | `undefined symbol: aoti_torch_abi_version` / `Model loading went wrong` | `torchaudio` do Colab incompatível com o `torch` 2.6 do TRIBE v2. Rode `!uv pip install --system "torchaudio<2.7" "torch<2.7"`, reinicie a sessão e volte ao Passo 2. |
 # | `ModuleNotFoundError: tribev2` | Rode o **Passo 1** e deixe o runtime reiniciar. |
 # | Erro `numpy`/`torch` de versão incompatível | O runtime não reiniciou: `Ambiente de execução` → `Reiniciar sessão`, depois Passo 2. |
 # | `401` / `403` / `GatedRepoError` com `meta-llama` | Seu acesso ao LLaMA 3.2 ainda não foi aprovado ou o token não está no secret `HF_TOKEN`. |
